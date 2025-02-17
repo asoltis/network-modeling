@@ -1,0 +1,77 @@
+## Notes on mathematics of different net prop/graph convultion approaches and implementations
+# - 2024-06-06
+
+With a graph adjacency matrix A where rows index "sources" and columns "targets", some mathematical
+formulations require transposing A to propagate signals from input vector X, e.g. h = A.TX, to perform
+"source to target" message passing. With unsigned/undirected graphs, A = A.T, but this is not the case
+with signed and/or directed graphs.
+
+In the steady-state random walk with restart (RWR, or personalized page rank) formulation implemented in
+network_propagation.py, no A matrix transpose is needed given the implementation, whereas the iterative
+formula would require this, e.g.:
+
+Hi = alpha * x_0 + (1 - alpha) * A.t() @ H_i-1
+
+In pytorch_geometric, propagate functions implicity performs this transpose, where it is essentially computing
+H = A.T @ X, e.g. as laid out here: https://github.com/pyg-team/pytorch_geometric/issues/549
+
+---
+
+As example, considering a 4 node graph with adjaceny matrix:
+
+A = [0., 0., 1., 1.],
+    [1., 0., 1., 0.],
+    [1., 0., 0., 1.],
+    [1., 1., 0., 0.]]
+
+and its degree normalized form:
+
+AN = [0.0000, 0.0000, 0.5000, 0.5000],
+     [0.5000, 0.0000, 0.5000, 0.0000],
+     [0.5000, 0.0000, 0.0000, 0.5000],
+     [0.5000, 0.5000, 0.0000, 0.0000]
+
+Propagating input vector X = [6, 8, 7, 5] with various methods are equivalent with:
+
+a) APPNP as implemented in pytorch geometric:
+
+conv = APPNP(K = 20, alpha = 0.2, add_self_loops = False, normalize = False)
+
+and using the degree normalized A
+
+conv(X, Gd.edge_index, Gd.norm_weight)
+
+tensor([[8.2857],
+        [4.3590],
+        [6.4579],
+        [6.8974]])
+
+b) iterative personalized page rank:
+
+x = x_0 = X
+for i in range(0, 20):
+    x = 0.2 * x_0 + (1 - 0.2) * (A / deg).t() @ x
+
+x =
+tensor([[8.2857],
+        [4.3590],
+        [6.4579],
+        [6.8974]])
+
+c) steady-state page rank, as implemented in network_propagation.py:
+
+h = np.dot(0.2*np.array(X.t()), np.linalg.inv(np.identity(X.t().shape[1]) - (1-0.2)*np.array(A / deg))).T
+
+h =
+array([[8.28571491],
+       [4.35897462],
+       [6.45787586],
+       [6.8974364 ]])
+
+---
+
+Thus, the three approaches are equivalent and the method implemented in network_propagation.py *does not* require transpose
+of the adjacency matrix for equivalency; transpose was originally coded in with degree normalization, but was removed as this
+can alter the behavior for directed networks. The iterative procedure requires transpose of A for equivalency, and pytorch
+geometric implements this implicitly.
+
